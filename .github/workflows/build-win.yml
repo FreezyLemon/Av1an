@@ -8,9 +8,9 @@ env:
   temp_path: 'C:\action_temp'
   vcbt_uri: 'https://aka.ms/vs/16/release/vs_buildtools.exe'
   vcbt_installer: 'C:\buildtools_installer.exe'
-  vsynth_uri: 'https://github.com/vapoursynth/vapoursynth/releases/download/R58/VapourSynth64-R58.exe'
-  vsynth_zip: 'C:\vapoursynth_installer.exe'
-  vsynth_path: 'C:\vapoursynth'
+  vsynth_uri: 'https://github.com/vapoursynth/vapoursynth/releases/download/R58/VapourSynth64-Portable-R58.zip'
+  #vsynth_zip: 'C:\vapoursynth_installer.zip'
+  #vsynth_path: 'C:\vapoursynth'
   nasm_uri: 'https://www.nasm.us/pub/nasm/releasebuilds/2.15.05/win64/nasm-2.15.05-win64.zip'
   #nasm_zip: 'C:\nasm.zip'
   #nasm_path: 'C:\NASM'
@@ -40,17 +40,19 @@ jobs:
       run: |
         $tempFile = New-TemporaryFile
         Invoke-WebRequest -Uri $env:nasm_uri -OutFile $tempFile -TimeoutSec 10
-        $nasmDir = Expand-Archive -LiteralPath $tempFile -DestinationPath 'C:' --PassThru
-        echo $nasmDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        echo $nasmDir
-        ls $nasmDir
+        $extractDir = Expand-Archive -LiteralPath $tempFile -DestinationPath 'C:\' -PassThru
+        echo $extractDir.FullPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo $extractDir.FullPath
+        ls $extractDir
 
     - name: Install VapourSynth
       run: |
-        Invoke-WebRequest -Uri $env:vsynth_uri -OutFile $env:vsynth_zip -TimeoutSec 10
-        Expand-Archive -LiteralPath $env:vsynth_zip -DestinationPath $env:vsynth_path
-        echo $env:vsynth_path | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        ls $env:vsynth_path
+        $tempFile = New-TemporaryFile
+        Invoke-WebRequest -Uri $env:vsynth_uri -OutFile $tempFile -TimeoutSec 10
+        $extractDir = Expand-Archive -LiteralPath $tempFile -DestinationPath 'C:\' -PassThru
+        echo $extractDir.FullPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo $extractDir.FullPath
+        ls $extractDir
 
 #     - name: Cache deps
 #       id: cache
