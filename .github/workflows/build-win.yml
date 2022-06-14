@@ -1,5 +1,7 @@
 name: Build Windows executable
-on: release
+on:
+  release:
+    types: [published]
 
 env:
   CARGO_TERM_COLOR: always
