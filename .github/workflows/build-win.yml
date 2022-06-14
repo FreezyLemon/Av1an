@@ -9,8 +9,7 @@ env:
   vcbt_uri: 'https://aka.ms/vs/16/release/vs_buildtools.exe'
   vcbt_installer: 'C:\buildtools_installer.exe'
   vsynth_uri: 'https://github.com/vapoursynth/vapoursynth/releases/download/R58/VapourSynth64-Portable-R58.7z'
-  #vsynth_zip: 'C:\vapoursynth_installer.zip'
-  #vsynth_path: 'C:\vapoursynth'
+  vsynth_path: 'C:\vapoursynth'
   nasm_uri: 'https://www.nasm.us/pub/nasm/releasebuilds/2.15.05/win64/nasm-2.15.05-win64.zip'
 
 jobs:
@@ -38,22 +37,19 @@ jobs:
       run: |
         $tempFile = New-TemporaryFile
         Invoke-WebRequest -Uri $env:nasm_uri -OutFile $tempFile -TimeoutSec 10
-        $extractDir = Expand-Archive -LiteralPath $tempFile -DestinationPath 'C:\' -PassThru
-        echo $extractDir
+        Expand-Archive -LiteralPath $tempFile -DestinationPath 'C:\'
+        Get-Item 'C:\nasm*'
 #        echo $extractDir.FullPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
     
-    # check PATH
-    - run: |
-        echo $env:PATH
-        nasm --version
+    - run: nasm --version
 
     - name: Install VapourSynth
       run: |
         Install-Module -Name 7Zip4Powershell -Force
         $tempFile = New-TemporaryFile
         Invoke-WebRequest -Uri $env:vsynth_uri -OutFile $tempFile -TimeoutSec 10
-        $extractDir = Expand-Archive -LiteralPath $tempFile -DestinationPath 'C:\' -PassThru
-#        echo $extractDir.FullPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        Expand-7Zip -ArchiveFileName $tempFile -TargetPath $env:vsynth_path
+        echo vsynth_path | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         
     - run: echo $env:PATH
     
