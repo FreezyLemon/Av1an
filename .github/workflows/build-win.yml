@@ -36,7 +36,7 @@ jobs:
         from-source: false
 
     - name: Setup Vapoursynth
-      uses: Irrational-Encoding-Wizardry/install-vapoursynth-action@v0.1.1
+      uses: Irrational-Encoding-Wizardry/install-vapoursynth-action@v0.1
       with:
         version: 58
         cache: true
