@@ -17,23 +17,24 @@ jobs:
     runs-on: windows-2022
 
     steps:
-#     - name: Setup FFmpeg 5.0\
-#       id: setup-ffmpeg
-#       uses: Iamshankhadeep/setup-ffmpeg@v1.1
-#       with:
-#         version: "5.0"
-#     - run: echo "FFMPEG_DIR=${{ steps.setup-ffmpeg.outputs.ffmpeg-path }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+    - name: Setup FFmpeg 5.0\
+      id: setup-ffmpeg
+      uses: Iamshankhadeep/setup-ffmpeg@v1.1
+      with:
+        version: "5.0"
+    - run: echo "FFMPEG_DIR=${{ steps.setup-ffmpeg.outputs.ffmpeg-path }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
     - name: Setup Python 3.10
       uses: actions/setup-python@v4
       with:
         python-version: '~3.10'
         architecture: 'x64'
 
-#     - name: Setup NASM
-#       uses: ilammy/setup-nasm@v1
-#       with:
-#         version: 2.15.05
-#         from-source: false
+    - name: Setup NASM
+      uses: ilammy/setup-nasm@v1
+      with:
+        version: 2.15.05
+        from-source: false
 
     - name: Install VapourSynth
       run: |
@@ -46,8 +47,9 @@ jobs:
     - name: Install Visual C++ Build Tools
       run: |
         Invoke-WebRequest -Uri $env:vcbt_uri -OutFile $env:vcbt_installer -TimeoutSec 10
-        '& $env:vcbt_installer --quiet --wait --norestart --nocache --installPath 'C:\BuildTools' --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.ASAN --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
+        '& $env:vcbt_installer --quiet --wait --norestart --nocache --installPath C:\BuildTools --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.ASAN --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
 
-#     - uses: actions/checkout@v3
-#     - name: Build Av1an
-#       run: cargo build -r --verbose
+    - uses: actions/checkout@v3
+    - name: Build Av1an
+      run: cargo build -r --verbose
+    - run: ls target
