@@ -29,19 +29,22 @@ jobs:
         architecture: 'x64'
 
 #     - name: Check cache for NASM
+#       id: cache-nasm
 #       uses: actions/cache@v3
 #       with:
 #         path: ${{ env.nasm_path }}
 #         key: ${{ hashFiles('$env:nasm_path\nasm.exe') }}
+    #- if: ${{ steps.cache-nasm.outputs.cache-hit == 'false' }}
     - name: Install NASM
       run: |
         $tempFile = New-TemporaryFile
         Invoke-WebRequest -Uri $env:nasm_uri -OutFile $tempFile -TimeoutSec 10
         Expand-Archive -LiteralPath $tempFile -DestinationPath 'C:\'
-        Get-Item 'C:\nasm*'
-#        echo $extractDir.FullPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        (Get-Item 'C:\nasm*').FullPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
     
-    - run: nasm --version
+    - run: |
+        echo $env:PATH
+        nasm --version
 
     - name: Install VapourSynth
       run: |
