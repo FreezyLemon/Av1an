@@ -19,25 +19,25 @@ jobs:
 
     steps:
 
-    - name: Download NASM
-      run: Invoke-WebRequest -Uri $env:NASM_URI -OutFile $env:NASM_INSTALLER -TimeoutSec 10
-    - name: Install NASM
-      run: '& $env:NASM_INSTALLER'
-    #- name: Download Visual C++ Build Tools
-    #  run: Invoke-WebRequest -Uri $env:VSBT_URI -OutFile $env:VSBT_INSTALLER -TimeoutSec 10
-    #- name: Install Visual C++ Build Tools
-    #  run: '& $env:VSBT_INSTALLER'
-    #- name: Download Vapoursynth
-    #  run: Invoke-WebRequest -Uri $env:VAPOURSYNTH_URI -OutFile $env:VAPOURSYNTH_INSTALLER -TimeoutSec 10
-    #- name: Install Vapoursynth
-    #  run: '& $env:VAPOURSYNTH_INSTALLER'
-    #- uses: actions/checkout@v3
-    #- uses: Iamshankhadeep/setup-ffmpeg@v1.1
-    #  with:
-    #    version: "4.4"
-    #- uses: actions/setup-python@v4
-    #  with:
-    #    python-version: '~3.10'
-    #    architecture: 'x64'
-    #- name: Build
-    #  run: cargo build -r --verbose
+    - name: Download Dependencies
+      run: |
+        Invoke-WebRequest -Uri $env:NASM_URI -OutFile $env:NASM_INSTALLER -TimeoutSec 10
+        Invoke-WebRequest -Uri $env:VSBT_URI -OutFile $env:VSBT_INSTALLER -TimeoutSec 10
+        Invoke-WebRequest -Uri $env:VAPOURSYNTH_URI -OutFile $env:VAPOURSYNTH_INSTALLER -TimeoutSec 10
+    - name: Install Dependencies
+      run: |
+        '& $env:NASM_INSTALLER'
+        '& $env:VSBT_INSTALLER'
+        '& $env:VAPOURSYNTH_INSTALLER'
+    - name: Setup FFmpeg 5.0
+      uses: Iamshankhadeep/setup-ffmpeg@v1.1
+      with:
+        version: "5.0"
+    - name: Setup Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '~3.10'
+        architecture: 'x64'
+    - uses: actions/checkout@v3
+    - name: Build Av1an
+      run: cargo build -r --verbose
