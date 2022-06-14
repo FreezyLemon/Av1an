@@ -1,4 +1,4 @@
-name: Rust
+name: Build Windows executable
 on: [release]
 
 env:
