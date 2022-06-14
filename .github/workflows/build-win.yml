@@ -5,7 +5,10 @@ on: workflow_dispatch
 
 env:
   CARGO_TERM_COLOR: always
+  VSBT_URI: 'https://aka.ms/vs/16/release/vs_buildtools.exe'
   VSBT_INSTALLER: 'C:\buildtools_installer.exe'
+  VAPOURSYNTH_URI: 'https://github.com/vapoursynth/vapoursynth/releases/download/R58/VapourSynth64-R58.exe'
+  VAPOURSYNTH_INSTALLER: 'C:/vapoursynth_installer.exe'
 
 jobs:
   build:
@@ -13,12 +16,14 @@ jobs:
     runs-on: windows-2022
 
     steps:
-    - name: Download Visual C++ Build Tools
-      run: Invoke-WebRequest -Uri 'https://aka.ms/vs/16/release/vs_buildtools.exe' -OutFile $env:VSBT_INSTALLER -TimeoutSec 10
-    - name: Install Visual C++ Build Tools
-      run: '& $env:VSBT_INSTALLER'
-
-
+    - name: Download Vapoursynth
+      run: Invoke-WebRequest -Uri $env:VAPOURSYNTH_URI -OutFile $env:VAPOURSYNTH_INSTALLER -TimeoutSec 10
+    - name: Install Vapoursynth
+      run: '& $env:VAPOURSYNTH_INSTALLER'
+    #- name: Download Visual C++ Build Tools
+    #  run: Invoke-WebRequest -Uri $env:VSBT_URI -OutFile $env:VSBT_INSTALLER -TimeoutSec 10
+    #- name: Install Visual C++ Build Tools
+    #  run: '& $env:VSBT_INSTALLER'
     #- uses: actions/checkout@v3
     #- uses: Iamshankhadeep/setup-ffmpeg@v1.1
     #  with:
