@@ -46,11 +46,13 @@ jobs:
         ls $extractDir
     
     # check PATH
-    - run: echo $env:PATH
+    - run: |
+        echo $env:PATH
+        nasm --version
 
     - name: Install VapourSynth
       run: |
-        Install-Module -Name 7Zip4Powershell
+        Install-Module -Name 7Zip4Powershell -Force
         $tempFile = New-TemporaryFile
         Invoke-WebRequest -Uri $env:vsynth_uri -OutFile $tempFile -TimeoutSec 10
         $extractDir = Expand-Archive -LiteralPath $tempFile -DestinationPath 'C:\' -PassThru
