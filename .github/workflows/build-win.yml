@@ -52,7 +52,7 @@ jobs:
         $tempFile = New-TemporaryFile
         Invoke-WebRequest -Uri $env:vsynth_uri -OutFile $tempFile -TimeoutSec 10
         Expand-7Zip -ArchiveFileName $tempFile -TargetPath $env:vsynth_path
-        echo vsynth_path | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo $env:vsynth_path | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         
     - run: echo $env:PATH
     
