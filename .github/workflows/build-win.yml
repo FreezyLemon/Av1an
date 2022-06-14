@@ -8,7 +8,7 @@ env:
   temp_path: 'C:\action_temp'
   vcbt_uri: 'https://aka.ms/vs/16/release/vs_buildtools.exe'
   vcbt_installer: 'C:\buildtools_installer.exe'
-  vsynth_uri: 'https://github.com/vapoursynth/vapoursynth/releases/download/R58/VapourSynth64-Portable-R58.zip'
+  vsynth_uri: 'https://github.com/vapoursynth/vapoursynth/releases/download/R58/VapourSynth64-Portable-R58.7z'
   #vsynth_zip: 'C:\vapoursynth_installer.zip'
   #vsynth_path: 'C:\vapoursynth'
   nasm_uri: 'https://www.nasm.us/pub/nasm/releasebuilds/2.15.05/win64/nasm-2.15.05-win64.zip'
@@ -44,15 +44,32 @@ jobs:
         echo $extractDir.FullPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         echo $extractDir.FullPath
         ls $extractDir
+    
+    # check PATH
+    - run: echo $env:PATH
 
     - name: Install VapourSynth
       run: |
+        Install-Module -Name 7Zip4Powershell
         $tempFile = New-TemporaryFile
         Invoke-WebRequest -Uri $env:vsynth_uri -OutFile $tempFile -TimeoutSec 10
         $extractDir = Expand-Archive -LiteralPath $tempFile -DestinationPath 'C:\' -PassThru
         echo $extractDir.FullPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         echo $extractDir.FullPath
         ls $extractDir
+        
+    - run: echo $env:PATH
+    
+    - name: Install Visual C++ Build Tools
+      run: |
+        (start /w vs_buildtools.exe --quiet --wait --norestart --nocache `
+          --installPath "$env:ProgramFiles(x86)\Microsoft Visual Studio\2022\BuildTools" `
+          --add Microsoft.VisualStudio.Workload.AzureBuildTools `
+          --remove Microsoft.VisualStudio.Component.Windows10SDK.10240 `
+          --remove Microsoft.VisualStudio.Component.Windows10SDK.10586 `
+          --remove Microsoft.VisualStudio.Component.Windows10SDK.14393 `
+          --remove Microsoft.VisualStudio.Component.Windows81SDK `
+          || IF "%ERRORLEVEL%"=="3010" EXIT 0) `
 
 #     - name: Cache deps
 #       id: cache
