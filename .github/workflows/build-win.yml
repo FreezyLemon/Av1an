@@ -12,13 +12,21 @@ jobs:
     runs-on: windows-2022
 
     steps:
-    - uses: actions/checkout@v3
-    - uses: Iamshankhadeep/setup-ffmpeg@v1.1
-      with:
-        version: "4.4"
-    - uses: actions/setup-python@v4
-      with:
-        python-version: '~3.10'
-        architecture: 'x64'
-    - name: Build
-      run: cargo build -r --verbose
+    - name: Download Visual C++ Build Tools
+      run: Invoke-WebRequest -Uri 'https://aka.ms/vs/16/release/vs_buildtools.exe' -TransferEncoding gzip -TimeoutSec 10
+      working-directory: ./download
+    - name: Install Visual C++ Build Tools
+      run: vs_buildtools.exe
+      working-directory: ./download
+      
+      
+    #- uses: actions/checkout@v3
+    #- uses: Iamshankhadeep/setup-ffmpeg@v1.1
+    #  with:
+    #    version: "4.4"
+    #- uses: actions/setup-python@v4
+    #  with:
+    #    python-version: '~3.10'
+    #    architecture: 'x64'
+    #- name: Build
+    #  run: cargo build -r --verbose
