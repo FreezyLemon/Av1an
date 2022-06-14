@@ -29,14 +29,11 @@ jobs:
         python-version: '~3.10'
         architecture: 'x64'
 
-    - name: Setup NASM
-      uses: ilammy/setup-nasm@v1
-      with:
-        version: 2.15.05
-        from-source: false
-    
-    #temp!
-    - run: nasm --version
+#     - name: Setup NASM
+#       uses: ilammy/setup-nasm@v1
+#       with:
+#         version: 2.15.05
+#         from-source: false
 
     - name: Install VapourSynth
       run: |
@@ -45,35 +42,12 @@ jobs:
         Invoke-WebRequest -Uri $env:vsynth_uri -OutFile $tempFile -TimeoutSec 10
         Expand-7Zip -ArchiveFileName $tempFile -TargetPath $env:vsynth_path
         echo $env:vsynth_path | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-    #temp!
-    - run: echo $env:PATH
     
     - name: Install Visual C++ Build Tools
       run: |
-        (start /w vs_buildtools.exe --quiet --wait --norestart --nocache `
-          --installPath "$env:ProgramFiles(x86)\Microsoft Visual Studio\2022\BuildTools" `
-          --add Microsoft.VisualStudio.Workload.AzureBuildTools `
-          --remove Microsoft.VisualStudio.Component.Windows10SDK.10240 `
-          --remove Microsoft.VisualStudio.Component.Windows10SDK.10586 `
-          --remove Microsoft.VisualStudio.Component.Windows10SDK.14393 `
-          --remove Microsoft.VisualStudio.Component.Windows81SDK `
-          || IF "%ERRORLEVEL%"=="3010" EXIT 0) `
+        Invoke-WebRequest -Uri $env:vcbt_uri -OutFile $env:vcbt_installer -TimeoutSec 10
+        '& $env:vcbt_installer --quiet --wait --norestart --nocache --installPath 'C:\BuildTools' --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.ASAN --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
 
-#     - name: Cache deps
-#       id: cache
-#       uses: actions/cache@v3
-#       with:
-#         path: 
-
-#     - name: Download Dependencies
-#       run: |
-#         
-#         Invoke-WebRequest -Uri $env:vcbt_uri -OutFile $env:vcbt_installer -TimeoutSec 10
-#     - name: Install Dependencies
-#       run: |
-#         '& $env:vcbt_installer'
-#         '& $env:vsynth_zip /ALLUSERS'
 #     - uses: actions/checkout@v3
 #     - name: Build Av1an
 #       run: cargo build -r --verbose
