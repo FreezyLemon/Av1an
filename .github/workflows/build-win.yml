@@ -5,12 +5,12 @@ on: workflow_dispatch
 
 env:
   CARGO_TERM_COLOR: always
-  VSBT_URI: 'https://aka.ms/vs/16/release/vs_buildtools.exe'
-  VSBT_INSTALLER: 'C:\buildtools_installer.exe'
-  VAPOURSYNTH_URI: 'https://github.com/vapoursynth/vapoursynth/releases/download/R58/VapourSynth64-R58.exe'
-  VAPOURSYNTH_INSTALLER: 'C:/vapoursynth_installer.exe'
-  NASM_URI: 'https://www.nasm.us/pub/nasm/releasebuilds/2.15.05/win64/nasm-2.15.05-installer-x64.exe'
-  NASM_INSTALLER: 'C:\nasm_installer.exe'
+  vcbt_uri: 'https://aka.ms/vs/16/release/vs_buildtools.exe'
+  vcbt_installer: 'C:\buildtools_installer.exe'
+  vsynth_uri: 'https://github.com/vapoursynth/vapoursynth/releases/download/R58/VapourSynth64-R58.exe'
+  vsynth_installer: 'C:\vapoursynth_installer.exe'
+  nasm_uri: 'https://www.nasm.us/pub/nasm/releasebuilds/2.15.05/win64/nasm-2.15.05-installer-x64.exe'
+  nasm_installer: 'C:\nasm_installer.exe'
 
 jobs:
   build:
@@ -18,26 +18,34 @@ jobs:
     runs-on: windows-2022
 
     steps:
-
-    - name: Download Dependencies
-      run: |
-        Invoke-WebRequest -Uri $env:NASM_URI -OutFile $env:NASM_INSTALLER -TimeoutSec 10
-        Invoke-WebRequest -Uri $env:VSBT_URI -OutFile $env:VSBT_INSTALLER -TimeoutSec 10
-        Invoke-WebRequest -Uri $env:VAPOURSYNTH_URI -OutFile $env:VAPOURSYNTH_INSTALLER -TimeoutSec 10
-    - name: Install Dependencies
-      run: |
-        '& $env:NASM_INSTALLER'
-        '& $env:VSBT_INSTALLER'
-        '& $env:VAPOURSYNTH_INSTALLER'
     - name: Setup FFmpeg 5.0
       uses: Iamshankhadeep/setup-ffmpeg@v1.1
       with:
         version: "5.0"
-    - name: Setup Python 3.10
-      uses: actions/setup-python@v4
-      with:
-        python-version: '~3.10'
-        architecture: 'x64'
-    - uses: actions/checkout@v3
-    - name: Build Av1an
-      run: cargo build -r --verbose
+    - run: Get-Command ffmpeg
+#     - name: Setup Python 3.10
+#       uses: actions/setup-python@v4
+#       with:
+#         python-version: '~3.10'
+#         architecture: 'x64'
+
+
+#    - name: Cache deps
+#      id: cache
+#      uses: actions/cache@v3
+#      with:
+#        path:
+
+#     - name: Download Dependencies
+#       run: |
+#         Invoke-WebRequest -Uri $env:nasm_uri -OutFile $env:nasm_installer -TimeoutSec 10
+#         Invoke-WebRequest -Uri $env:vcbt_uri -OutFile $env:vcbt_installer -TimeoutSec 10
+#         Invoke-WebRequest -Uri $env:vsynth_uri -OutFile $env:vsynth_installer -TimeoutSec 10
+#     - name: Install Dependencies
+#       run: |
+#         '& $env:nasm_installer'
+#         '& $env:vcbt_installer'
+#         '& $env:vsynth_installer /ALLUSERS'
+#     - uses: actions/checkout@v3
+#     - name: Build Av1an
+#       run: cargo build -r --verbose
