@@ -5,6 +5,7 @@ on: workflow_dispatch
 
 env:
   CARGO_TERM_COLOR: always
+  VSBT_INSTALLER: 'C:\buildtools_installer.exe'
 
 jobs:
   build:
@@ -12,17 +13,12 @@ jobs:
     runs-on: windows-2022
 
     steps:
-    - run: mkdir Download
     - name: Download Visual C++ Build Tools
-      run: Invoke-WebRequest -Uri 'https://aka.ms/vs/16/release/vs_buildtools.exe' -ContentType 'application/vnd.microsoft.portable-executable' -TransferEncoding gzip -TimeoutSec 10
-      working-directory: Download
-    - run: ls
-      working-directory: Download
+      run: Invoke-WebRequest -Uri 'https://aka.ms/vs/16/release/vs_buildtools.exe' -OutFile $env:VSBT_INSTALLER -TimeoutSec 10
     - name: Install Visual C++ Build Tools
-      run: vs_buildtools.exe
-      working-directory: Download
-      
-      
+      run: '& $env:VSBT_INSTALLER'
+
+
     #- uses: actions/checkout@v3
     #- uses: Iamshankhadeep/setup-ffmpeg@v1.1
     #  with:
