@@ -1,0 +1,22 @@
+name: Rust
+on: [release]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: windows-2022
+
+    steps:
+    - uses: actions/checkout@v3
+    - uses: Iamshankhadeep/setup-ffmpeg@v1.1
+      with:
+        version: "4.4"
+    - name: Test ffmpeg
+      run: ffmpeg --version
+#    - name: Build
+#      run: cargo build --verbose
+#    - name: Run tests
+#      run: cargo test --verbose
