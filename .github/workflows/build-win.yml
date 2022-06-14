@@ -22,7 +22,7 @@ jobs:
       uses: Iamshankhadeep/setup-ffmpeg@v1.1
       with:
         version: "5.0"
-    - run: Get-Command ffmpeg
+    - run: (Get-Command ffmpeg).Source
 #     - name: Setup Python 3.10
 #       uses: actions/setup-python@v4
 #       with:
