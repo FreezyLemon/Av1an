@@ -34,21 +34,19 @@ jobs:
       with:
         version: 2.15.05
         from-source: false
+    
+    #temp!
+    - run: nasm --version
 
-    - name: Setup Vapoursynth
-      uses: Irrational-Encoding-Wizardry/install-vapoursynth-action@v0.1
-      with:
-        version: 58
-        cache: true
+    - name: Install VapourSynth
+      run: |
+        Install-Module -Name 7Zip4Powershell -Force
+        $tempFile = New-TemporaryFile
+        Invoke-WebRequest -Uri $env:vsynth_uri -OutFile $tempFile -TimeoutSec 10
+        Expand-7Zip -ArchiveFileName $tempFile -TargetPath $env:vsynth_path
+        echo $env:vsynth_path | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-#     - name: Install VapourSynth
-#       run: |
-#         Install-Module -Name 7Zip4Powershell -Force
-#         $tempFile = New-TemporaryFile
-#         Invoke-WebRequest -Uri $env:vsynth_uri -OutFile $tempFile -TimeoutSec 10
-#         Expand-7Zip -ArchiveFileName $tempFile -TargetPath $env:vsynth_path
-#         echo $env:vsynth_path | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        
+    #temp!
     - run: echo $env:PATH
     
     - name: Install Visual C++ Build Tools
