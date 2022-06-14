@@ -17,6 +17,7 @@ jobs:
 
     steps:
     - name: Setup FFmpeg 5.0
+      id: setup-ffmpeg
       uses: Iamshankhadeep/setup-ffmpeg@v1.1
       with:
         version: "5.0"
