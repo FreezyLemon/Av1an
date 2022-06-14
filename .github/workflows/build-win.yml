@@ -22,7 +22,7 @@ jobs:
         version: "5.0"
     - name: Add FFmpeg to PATH
       run: |
-        Get-Command ffmpeg | Get-Member
+        echo "${{ steps.setup-ffmpeg.outputs.path }}"
 #        echo "FFMPEG_DIR=$fPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
 #     - name: Setup Python 3.10
