@@ -12,8 +12,6 @@ env:
   #vsynth_zip: 'C:\vapoursynth_installer.zip'
   #vsynth_path: 'C:\vapoursynth'
   nasm_uri: 'https://www.nasm.us/pub/nasm/releasebuilds/2.15.05/win64/nasm-2.15.05-win64.zip'
-  #nasm_zip: 'C:\nasm.zip'
-  #nasm_path: 'C:\NASM'
 
 jobs:
   build:
@@ -41,9 +39,8 @@ jobs:
         $tempFile = New-TemporaryFile
         Invoke-WebRequest -Uri $env:nasm_uri -OutFile $tempFile -TimeoutSec 10
         $extractDir = Expand-Archive -LiteralPath $tempFile -DestinationPath 'C:\' -PassThru
-        echo $extractDir.FullPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        echo $extractDir.FullPath
-        ls $extractDir
+        echo $extractDir
+#        echo $extractDir.FullPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
     
     # check PATH
     - run: |
@@ -56,9 +53,7 @@ jobs:
         $tempFile = New-TemporaryFile
         Invoke-WebRequest -Uri $env:vsynth_uri -OutFile $tempFile -TimeoutSec 10
         $extractDir = Expand-Archive -LiteralPath $tempFile -DestinationPath 'C:\' -PassThru
-        echo $extractDir.FullPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        echo $extractDir.FullPath
-        ls $extractDir
+#        echo $extractDir.FullPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         
     - run: echo $env:PATH
     
