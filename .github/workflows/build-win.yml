@@ -9,6 +9,8 @@ env:
   VSBT_INSTALLER: 'C:\buildtools_installer.exe'
   VAPOURSYNTH_URI: 'https://github.com/vapoursynth/vapoursynth/releases/download/R58/VapourSynth64-R58.exe'
   VAPOURSYNTH_INSTALLER: 'C:/vapoursynth_installer.exe'
+  NASM_URI: 'https://www.nasm.us/pub/nasm/releasebuilds/2.15.05/win64/nasm-2.15.05-installer-x64.exe'
+  NASM_INSTALLER: 'C:\nasm_installer.exe'
 
 jobs:
   build:
@@ -16,14 +18,19 @@ jobs:
     runs-on: windows-2022
 
     steps:
-    - name: Download Vapoursynth
-      run: Invoke-WebRequest -Uri $env:VAPOURSYNTH_URI -OutFile $env:VAPOURSYNTH_INSTALLER -TimeoutSec 10
-    - name: Install Vapoursynth
-      run: '& $env:VAPOURSYNTH_INSTALLER'
+
+    - name: Download NASM
+      run: Invoke-WebRequest -Uri $env:NASM_URI -OutFile $env:NASM_INSTALLER -TimeoutSec 10
+    - name: Install NASM
+      run: '& $env:NASM_INSTALLER'
     #- name: Download Visual C++ Build Tools
     #  run: Invoke-WebRequest -Uri $env:VSBT_URI -OutFile $env:VSBT_INSTALLER -TimeoutSec 10
     #- name: Install Visual C++ Build Tools
     #  run: '& $env:VSBT_INSTALLER'
+    #- name: Download Vapoursynth
+    #  run: Invoke-WebRequest -Uri $env:VAPOURSYNTH_URI -OutFile $env:VAPOURSYNTH_INSTALLER -TimeoutSec 10
+    #- name: Install Vapoursynth
+    #  run: '& $env:VAPOURSYNTH_INSTALLER'
     #- uses: actions/checkout@v3
     #- uses: Iamshankhadeep/setup-ffmpeg@v1.1
     #  with:
