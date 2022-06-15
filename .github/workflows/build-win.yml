@@ -31,7 +31,7 @@ jobs:
         $tempFile = New-TemporaryFile
         Invoke-WebRequest -Uri $env:ff_uri -OutFile $tempFile -TimeoutSec 10
         Expand-7Zip -ArchiveFileName $tempFile -TargetPath $env:ff_path
-        $extractDir = Get-Item '$env:ff_path/ffmpeg*shared' | Select-Object -First 1 -ExpandProperty FullName
+        $extractDir = Get-Item -Path "$env:ff_path/ffmpeg*shared" | Select-Object -First 1 -ExpandProperty FullName
         Move-Item "$extractDir/**" -Destination $env:ff_path
         Remove-Item $extractDir
         ls 'C:\ffmpeg'
