@@ -18,13 +18,6 @@ jobs:
     runs-on: windows-2022
 
     steps:
-#     - name: Check cache for FFmpeg
-#       id: cache-ff
-#       uses: actions/cache@v3
-#       with:
-#         path: ${{ env.ff_path }}
-#         key: ff-${{ hashFiles('**') }}
-    
     - name: Download & install FFmpeg
       run: |
         Install-Module -Name 7Zip4Powershell -Force
@@ -34,7 +27,6 @@ jobs:
         $extractDir = Get-Item -Path "$env:ff_path/ffmpeg*shared" | Select-Object -First 1 -ExpandProperty FullName
         Move-Item "$extractDir/**" -Destination $env:ff_path
         Remove-Item $extractDir
-        ls 'C:\ffmpeg'
         echo $env:ff_path | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         echo "FFMPEG_DIR=$env:ff_path" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
@@ -50,13 +42,6 @@ jobs:
         version: 2.15.05
         from-source: false
 
-#     - name: Check cache for VapourSynth
-#       id: cache-vsynth
-#       uses: actions/cache@v3
-#       with:
-#         path: ${{ env.vsynth_path }}
-#         key: vsynth-${{ hashFiles('**') }}
-
     - if: ${{ steps.cache-vsynth.outputs.cache-hit == 'false' }}
       name: Download & install VapourSynth
       run: |
@@ -71,7 +56,13 @@ jobs:
         '& $env:vcbt_installer --quiet --wait --norestart --nocache --installPath $env:vcbt_path --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.ASAN --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
 
     - uses: actions/checkout@v3
-    - uses: Swatinem/rust-cache@v1
+    - name: Cargo cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          '$HOME\.cargo\git'
+          '$HOME\.cargo\registry'
+        key: cargo-${{ hashFiles('**\Cargo.toml', '**\Cargo.lock') }}
     - name: Build Av1an
       run: cargo build -rv
     - run: ls target
