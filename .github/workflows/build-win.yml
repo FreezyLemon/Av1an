@@ -18,12 +18,12 @@ jobs:
     runs-on: windows-2022
 
     steps:
-    - name: Check cache for FFmpeg
-      id: cache-ff
-      uses: actions/cache@v3
-      with:
-        path: ${{ env.ff_path }}
-        key: ff-${{ hashFiles('**') }}
+#     - name: Check cache for FFmpeg
+#       id: cache-ff
+#       uses: actions/cache@v3
+#       with:
+#         path: ${{ env.ff_path }}
+#         key: ff-${{ hashFiles('**') }}
     
     - name: Download & install FFmpeg
       run: |
@@ -32,7 +32,7 @@ jobs:
         Invoke-WebRequest -Uri $env:ff_uri -OutFile $tempFile -TimeoutSec 10
         Expand-7Zip -ArchiveFileName $tempFile -TargetPath $env:ff_path
         $extractDir = Get-Item 'ffmpeg*shared' | Select-Object -First 1
-        Get-Type $extractDir
+        Get-TypeData $extractDir
         Get-Member $extractDir
         Move-Item "$extractDir.FullName/**" -Destination $env:ff_path
         Remove-Item $extractDir
@@ -52,12 +52,12 @@ jobs:
         version: 2.15.05
         from-source: false
 
-    - name: Check cache for VapourSynth
-      id: cache-vsynth
-      uses: actions/cache@v3
-      with:
-        path: ${{ env.vsynth_path }}
-        key: vsynth-${{ hashFiles('**') }}
+#     - name: Check cache for VapourSynth
+#       id: cache-vsynth
+#       uses: actions/cache@v3
+#       with:
+#         path: ${{ env.vsynth_path }}
+#         key: vsynth-${{ hashFiles('**') }}
 
     - if: ${{ steps.cache-vsynth.outputs.cache-hit == 'false' }}
       name: Download & install VapourSynth
