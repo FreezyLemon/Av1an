@@ -5,6 +5,8 @@ on: workflow_dispatch
 
 env:
   CARGO_TERM_COLOR: always
+  ff_uri: 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z'
+  ff_path: 'C:\ffmpeg'
   vcbt_uri: 'https://aka.ms/vs/16/release/vs_buildtools.exe'
   vcbt_installer: 'C:\buildtools_installer.exe'
   vcbt_path: 'C:\BuildTools'
@@ -16,13 +18,25 @@ jobs:
     runs-on: windows-2022
 
     steps:
-    - name: Setup FFmpeg 5.0
-      id: setup-ffmpeg
-      uses: Iamshankhadeep/setup-ffmpeg@v1.1
+    - name: Check cache for FFmpeg
+      id: cache-ff
+      uses: actions/cache@v3
       with:
-        version: "5.0"
-    - name: Add FFmpeg to PATH
-      run: echo "FFMPEG_DIR=${{ steps.setup-ffmpeg.outputs.path }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        path: ${{ env.ff_path }}
+        key: ff-${{ '**' }}
+    
+    - name: Download & install FFmpeg
+      run: |
+        Install-Module -Name 7Zip4Powershell -Force
+        $tempFile = New-TemporaryFile
+        Invoke-WebRequest -Uri $env:ff_uri -OutFile $tempFile -TimeoutSec 10
+        Expand-7Zip -ArchiveFileName $tempFile -TargetPath $env:ff_path
+        $extractDir = Get-Item 'ffmpeg*shared' | Select-Object -First 1
+        Move-Item "$extractDir.FullName/**" -Destination $env:ff_path
+        Remove-Item $extractDir
+        ls 'C:\ffmpeg'
+        echo $env:ff_path | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "FFMPEG_DIR=$env:ff_path" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
     - name: Setup Python 3.10
       uses: actions/setup-python@v4
@@ -46,7 +60,6 @@ jobs:
     - if: ${{ steps.cache-vsynth.outputs.cache-hit == 'false' }}
       name: Download & install VapourSynth
       run: |
-        Install-Module -Name 7Zip4Powershell -Force
         $tempFile = New-TemporaryFile
         Invoke-WebRequest -Uri $env:vsynth_uri -OutFile $tempFile -TimeoutSec 10
         Expand-7Zip -ArchiveFileName $tempFile -TargetPath $env:vsynth_path
@@ -62,3 +75,8 @@ jobs:
     - name: Build Av1an
       run: cargo build -rv
     - run: ls target
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: Build result
+        path: target/release/
