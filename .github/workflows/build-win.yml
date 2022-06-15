@@ -67,11 +67,12 @@ jobs:
           '$HOME\.cargo\git'
           '$HOME\.cargo\registry'
         key: cargo-${{ hashFiles('**\Cargo.toml', '**\Cargo.lock') }}
-    - name: Build Av1an
-      run: cargo build -rv
-    - run: |
-        ls target
-        ls target/release
+    - run: Get-Command pkg-config
+#     - name: Build Av1an
+#       run: cargo build -rv
+#     - run: |
+#         ls target
+#         ls target/release
 #     - name: Upload artifacts
 #       uses: actions/upload-artifact@v3
 #       with:
