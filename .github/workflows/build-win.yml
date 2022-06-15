@@ -46,8 +46,7 @@ jobs:
         version: 2.15.05
         from-source: false
 
-    - if: ${{ steps.cache-vsynth.outputs.cache-hit == 'false' }}
-      name: Download & install VapourSynth
+    - name: Download & install VapourSynth
       run: |
         $tempFile = New-TemporaryFile
         Invoke-WebRequest -Uri $env:vsynth_uri -OutFile $tempFile -TimeoutSec 10
@@ -58,7 +57,7 @@ jobs:
     - name: Download & install Visual C++ Build Tools
       run: |
         Invoke-WebRequest -Uri $env:vcbt_uri -OutFile $env:vcbt_installer -TimeoutSec 10
-        '& $env:vcbt_installer --quiet --wait --norestart --nocache --installPath $env:vcbt_path --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.ASAN --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
+        '& $env:vcbt_installer --quiet --wait --norestart --nocache --installPath $env:vcbt_path --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.ASAN'
 
     - uses: actions/checkout@v3
     - name: Cargo cache
