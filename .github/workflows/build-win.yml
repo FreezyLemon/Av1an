@@ -23,7 +23,7 @@ jobs:
       uses: actions/cache@v3
       with:
         path: ${{ env.ff_path }}
-        key: ff-${{ '**' }}
+        key: ff-${{ hashFiles('**') }}
     
     - name: Download & install FFmpeg
       run: |
@@ -32,6 +32,8 @@ jobs:
         Invoke-WebRequest -Uri $env:ff_uri -OutFile $tempFile -TimeoutSec 10
         Expand-7Zip -ArchiveFileName $tempFile -TargetPath $env:ff_path
         $extractDir = Get-Item 'ffmpeg*shared' | Select-Object -First 1
+        Get-Type $extractDir
+        Get-Member $extractDir
         Move-Item "$extractDir.FullName/**" -Destination $env:ff_path
         Remove-Item $extractDir
         ls 'C:\ffmpeg'
