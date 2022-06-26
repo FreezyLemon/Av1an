@@ -1,8 +1,5 @@
 name: Release Av1an
-on:
-  push:
-    tags:
-      - '*'
+on: push
 
 jobs:
   build:
