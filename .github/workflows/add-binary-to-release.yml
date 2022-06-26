@@ -1,7 +1,7 @@
 name: Add Windows x64 binary to Release
 on:
   release:
-    types: [created]
+    types: [published]
 
 jobs:
   attach:
