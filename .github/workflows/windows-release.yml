@@ -1,4 +1,4 @@
-name: Release Av1an (source code & win64 binary)
+name: Release Av1an
 on:
   push:
     tags:
