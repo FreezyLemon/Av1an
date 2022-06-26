@@ -1,4 +1,4 @@
-name: Build Av1an (Windows x64)
+name: Release Av1an (source code & win64 binary)
 on:
   push:
     tags:
