@@ -1,8 +1,9 @@
 name: Release Av1an
-on: push
+on: create
 
 jobs:
   build:
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
     runs-on: windows-2022
 
     env:
