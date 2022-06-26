@@ -1,5 +1,8 @@
 name: Build Av1an (Windows x64)
-on: workflow_dispatch
+on:
+  push:
+    tags:
+      - '*'
 
 jobs:
   build:
@@ -83,8 +86,10 @@ jobs:
           CARGO_TERM_COLOR: always
         run: cargo build -rv
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+      - name: Draft release
+        uses: softprops/action-gh-release@v1
         with:
-          name: av1an
-          path: target/release/av1an.exe
+          body: This draft was created automatically because a new tag was pushed.
+          draft: true
+          files: target/release/av1an.exe
+          fail_on_unmatched_files: true
