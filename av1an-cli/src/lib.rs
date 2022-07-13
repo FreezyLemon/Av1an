@@ -8,7 +8,7 @@ use anyhow::{anyhow, bail, ensure, Context};
 use av1an_core::concat::ConcatMethod;
 use av1an_core::encoder::Encoder;
 use av1an_core::progress_bar::{get_first_multi_progress_bar, get_progress_bar};
-use av1an_core::settings::{EncodeArgs, InputPixelFormat, PixelFormat};
+use av1an_core::settings::{EncodeArgs, InputPixelFormat, PixelFormat, FFmpegArgs, EncodingArgs, SceneDetectionArgs, VMAFArgs};
 use av1an_core::util::read_in_dir;
 use av1an_core::{
   ffmpeg, hash_path, into_vec, vapoursynth, ChunkMethod, ChunkOrdering, Input, ScenecutMethod,
@@ -548,136 +548,8 @@ pub fn parse_cli(args: CliOpts) -> anyhow::Result<Vec<EncodeArgs>> {
 
     let input = Input::from(input);
 
-    // TODO make an actual constructor for this
-    let mut arg = EncodeArgs {
-      frames: 0,
-      log_file: if let Some(log_file) = args.log_file.as_ref() {
-        Path::new(&format!("{}.log", log_file)).to_owned()
-      } else {
-        Path::new(&temp).join("log.log")
-      },
-      ffmpeg_filter_args: if let Some(args) = args.ffmpeg_filter_args.as_ref() {
-        shlex::split(args).ok_or_else(|| anyhow!("Failed to split ffmpeg filter arguments"))?
-      } else {
-        Vec::new()
-      },
-      temp,
-      force: args.force,
-      passes: if let Some(passes) = args.passes {
-        passes
-      } else {
-        args.encoder.get_default_pass()
-      },
-      video_params: if let Some(args) = args.video_params.as_ref() {
-        shlex::split(args).ok_or_else(|| anyhow!("Failed to split video encoder arguments"))?
-      } else {
-        Vec::new()
-      },
-      output_file: if let Some(path) = args.output_file.as_ref() {
-        let path = PathAbs::new(path)?;
-
-        if let Ok(parent) = path.parent() {
-          ensure!(parent.exists(), "Path to file {:?} is invalid", path);
-        } else {
-          bail!("Failed to get parent directory of path: {:?}", path);
-        }
-
-        path.to_string_lossy().to_string()
-      } else {
-        format!(
-          "{}_{}.mkv",
-          input
-            .as_path()
-            .file_stem()
-            .unwrap_or_else(|| input.as_path().as_ref())
-            .to_string_lossy(),
-          args.encoder
-        )
-      },
-      audio_params: if let Some(args) = args.audio_params.as_ref() {
-        shlex::split(args)
-          .ok_or_else(|| anyhow!("Failed to split ffmpeg audio encoder arguments"))?
-      } else {
-        into_vec!["-c:a", "copy"]
-      },
-      chunk_method: args
-        .chunk_method
-        .unwrap_or_else(vapoursynth::best_available_chunk_method),
-      chunk_order: args.chunk_order,
-      concat: args.concat,
-      encoder: args.encoder,
-      extra_splits_len: match args.extra_split {
-        Some(0) => None,
-        Some(x) => Some(x),
-        // Make sure it's at least 10 seconds
-        None => match input.frame_rate() {
-          Ok(fps) => Some((fps * 10.0) as usize),
-          Err(_) => Some(240_usize),
-        },
-      },
-      photon_noise: args
-        .photon_noise
-        .and_then(|arg| if arg == 0 { None } else { Some(arg) }),
-      sc_pix_format: args.sc_pix_format,
-      keep: args.keep,
-      max_tries: args.max_tries,
-      min_q: args.min_q,
-      max_q: args.max_q,
-      min_scene_len: args.min_scene_len,
-      vmaf_threads: args.vmaf_threads,
-      input_pix_format: {
-        match &input {
-          Input::Video(path) => InputPixelFormat::FFmpeg {
-            format: ffmpeg::get_pixel_format(path.as_ref()).with_context(|| {
-              format!(
-                "FFmpeg failed to get pixel format for input video {:?}",
-                path
-              )
-            })?,
-          },
-          Input::VapourSynth(path) => InputPixelFormat::VapourSynth {
-            bit_depth: crate::vapoursynth::bit_depth(path.as_ref()).with_context(|| {
-              format!(
-                "VapourSynth failed to get bit depth for input video {:?}",
-                path
-              )
-            })?,
-          },
-        }
-      },
-      input,
-      output_pix_format: PixelFormat {
-        format: args.pix_format,
-        bit_depth: args.encoder.get_format_bit_depth(args.pix_format)?,
-      },
-      probe_slow: args.probe_slow,
-      probes: args.probes,
-      probing_rate: args.probing_rate,
-      resume: args.resume,
-      scenes: args.scenes.clone(),
-      split_method: args.split_method.clone(),
-      sc_method: args.sc_method,
-      sc_only: args.sc_only,
-      sc_downscale_height: args.sc_downscale_height,
-      target_quality: args.target_quality,
-      verbosity: if args.quiet {
-        Verbosity::Quiet
-      } else if args.verbose {
-        Verbosity::Verbose
-      } else {
-        Verbosity::Normal
-      },
-      vmaf: args.vmaf,
-      vmaf_filter: args.vmaf_filter.clone(),
-      vmaf_path: args.vmaf_path.clone(),
-      vmaf_res: args.vmaf_res.to_string().clone(),
-      workers: args.workers,
-      set_thread_affinity: args.set_thread_affinity,
-      vs_script: None,
-      zones: args.zones.clone(),
-    };
-
-    arg.startup_check()?;
+    let mut encode = create_encode_args(&args, input, temp)?;
+    encode.startup_check()?;
 
     if !args.overwrite {
       // UGLY: taking first file for output file
@@ -692,7 +564,7 @@ pub fn parse_cli(args: CliOpts) -> anyhow::Result<Vec<EncodeArgs>> {
           exit(0);
         }
       } else {
-        let path: &Path = arg.output_file.as_ref();
+        let path: &Path = encode.output_file.as_ref();
 
         if path.exists()
           && !confirm(&format!(
@@ -706,10 +578,147 @@ pub fn parse_cli(args: CliOpts) -> anyhow::Result<Vec<EncodeArgs>> {
       }
     }
 
-    valid_args.push(arg)
+    valid_args.push(encode)
   }
 
   Ok(valid_args)
+}
+
+fn create_encode_args(args: &CliOpts, input: Input, temp_dir: String) -> anyhow::Result<EncodeArgs> {
+  let output_file = if let Some(path) = args.output_file.as_ref() {
+    let path = PathAbs::new(path)?;
+
+    if let Ok(parent) = path.parent() {
+      ensure!(parent.exists(), "Path to file {:?} is invalid", path);
+    } else {
+      bail!("Failed to get parent directory of path: {:?}", path);
+    }
+  
+    path.to_string_lossy().to_string()
+  } else {
+    format!(
+      "{}_{}.mkv",
+      input
+        .as_path()
+        .file_stem()
+        .unwrap_or_else(|| input.as_path().as_ref())
+        .to_string_lossy(),
+      args.encoder
+    )
+  };
+
+  let log_file = if let Some(log_file) = args.log_file.as_ref() {
+    Path::new(&format!("{}.log", log_file)).to_owned()
+  } else {
+    Path::new(&temp_dir).join("log.log")
+  };
+
+  let ifr = input.frame_rate();
+
+  let input_pixel_format = match &input {
+    Input::Video(path) => InputPixelFormat::FFmpeg {
+      format: ffmpeg::get_pixel_format(path.as_ref()).with_context(|| {
+        format!(
+          "FFmpeg failed to get pixel format for input video {:?}",
+          path
+        )
+      })?,
+    },
+    Input::VapourSynth(path) => InputPixelFormat::VapourSynth {
+      bit_depth: crate::vapoursynth::bit_depth(path.as_ref()).with_context(|| {
+        format!(
+          "VapourSynth failed to get bit depth for input video {:?}",
+          path
+        )
+      })?,
+    }
+  };
+  
+  Ok(EncodeArgs {
+    vs_script: None,
+    input,
+    temp_dir,
+    frames: 0,
+    output_file,
+    verbosity: if args.quiet {
+      Verbosity::Quiet
+    } else if args.verbose {
+      Verbosity::Verbose
+    } else {
+      Verbosity::Normal
+    },
+    log_file,
+    resume: args.resume,
+    keep: args.keep,
+    force: args.force,
+    scene_detection: SceneDetectionArgs {
+      save_file: args.scenes.clone(),
+      split_method: args.split_method.clone(),
+      pixel_format: args.sc_pix_format,
+      method: args.sc_method,
+      only: args.sc_only,
+      downscale_height: args.sc_downscale_height,
+      extra_splits_len: match args.extra_split {
+        Some(0) => None,
+        Some(x) => Some(x),
+        None => match ifr {
+          Ok(fps) => Some((fps * 10.0) as usize),
+          Err(_) => Some(240_usize),
+        }
+      },
+      min_len: args.min_scene_len,
+    },
+    encoding: EncodingArgs {
+      encoder: args.encoder,
+      passes: args.passes.unwrap_or(args.encoder.get_default_pass()),
+      params: if let Some(args) = args.video_params.as_ref() {
+        shlex::split(args).ok_or_else(|| anyhow!("Failed to split video encoder arguments"))?
+      } else {
+        Vec::new()
+      },
+      max_tries: args.max_tries,
+      chunk_method: args
+        .chunk_method
+        .unwrap_or_else(vapoursynth::best_available_chunk_method),
+      chunk_order: args.chunk_order,
+      concat: args.concat,
+      workers: args.workers,
+      worker_thread_affinity: args.set_thread_affinity,
+      photon_noise_level: args.photon_noise.and_then(|arg| if arg == 0 {None} else {Some(arg)}),
+        zone_file: args.zones.clone(),
+    },
+    vmaf: VMAFArgs {
+      calculate: args.vmaf,
+      model_path: args.vmaf_path.clone(),
+      res_string: args.vmaf_res.clone(),
+      threads: args.vmaf_threads,
+      filter: args.vmaf_filter.clone(),
+      target_quality: args.target_quality,
+      probes: args.probes,
+      probing_rate: args.probing_rate,
+      probe_slow: args.probe_slow,
+      min_q: args.min_q,
+      max_q: args.max_q,
+    },
+    ffmpeg: FFmpegArgs {
+      filters: if let Some(args) = args.ffmpeg_filter_args.as_ref() {
+        shlex::split(args).ok_or_else(|| anyhow!("Failed to split ffmpeg filter arguments"))?
+      } else {
+        Vec::new()
+      },
+      audio: if let Some(args) = args.audio_params.as_ref() {
+        shlex::split(args)
+          .ok_or_else(|| anyhow!("Failed to split ffmpeg audio encoder arguments"))?
+      } else {
+        into_vec!["-c:a", "copy"]
+      },
+      input_pixel_format,
+      output_pixel_format: PixelFormat {
+        format: args.pix_format,
+        bit_depth: args.encoder.get_format_bit_depth(args.pix_format)?
+      },
+    },
+  })
 }
 
 pub struct StderrLogger {

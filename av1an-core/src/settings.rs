@@ -53,64 +53,275 @@ pub enum InputPixelFormat {
   FFmpeg { format: Pixel },
 }
 
-#[allow(clippy::struct_excessive_bools)]
-pub struct EncodeArgs {
-  pub frames: usize,
+pub struct SceneDetectionArgs {
+  pub save_file: Option<PathBuf>,
+  pub split_method: SplitMethod,
+  pub pixel_format: Option<Pixel>,
+  pub method: ScenecutMethod,
+  pub only: bool,
+  pub downscale_height: Option<usize>,
+  pub extra_splits_len: Option<usize>,
+  pub min_len: usize,
+}
 
-  pub input: Input,
-  pub temp: String,
-  pub output_file: String,
-
-  pub vs_script: Option<PathBuf>,
+pub struct EncodingArgs {
+  pub encoder: Encoder,
+  pub passes: u8,
+  pub params: Vec<String>,
+  pub max_tries: usize,
 
   pub chunk_method: ChunkMethod,
   pub chunk_order: ChunkOrdering,
-  pub scenes: Option<PathBuf>,
-  pub split_method: SplitMethod,
-  pub sc_pix_format: Option<Pixel>,
-  pub sc_method: ScenecutMethod,
-  pub sc_only: bool,
-  pub sc_downscale_height: Option<usize>,
-  pub extra_splits_len: Option<usize>,
-  pub min_scene_len: usize,
+  pub concat: ConcatMethod,
 
-  pub max_tries: usize,
-
-  pub passes: u8,
-  pub video_params: Vec<String>,
-  pub encoder: Encoder,
   pub workers: usize,
-  pub set_thread_affinity: Option<usize>,
-  pub photon_noise: Option<u8>,
-  pub zones: Option<PathBuf>,
+  pub worker_thread_affinity: Option<usize>,
 
-  // FFmpeg params
-  pub ffmpeg_filter_args: Vec<String>,
-  pub audio_params: Vec<String>,
-  pub input_pix_format: InputPixelFormat,
-  pub output_pix_format: PixelFormat,
+  pub photon_noise_level: Option<u8>,
+  pub zone_file: Option<PathBuf>,
+}
 
+impl EncodingArgs {
+  pub fn validate(&mut self, validate_params: bool) -> anyhow::Result<()> {
+    ensure!(self.max_tries > 0);
+
+    if self.concat == ConcatMethod::Ivf
+      && !matches!(
+        self.encoder,
+        Encoder::rav1e | Encoder::aom | Encoder::svt_av1 | Encoder::vpx
+      )
+    {
+      bail!(".ivf only supports VP8, VP9, and AV1");
+    }
+
+    if self.concat == ConcatMethod::MKVMerge && which::which("mkvmerge").is_err() {
+      bail!("mkvmerge not found, but `--concat mkvmerge` was specified. Is it installed in system path?");
+    }
+
+    if self.encoder == Encoder::x265 && self.concat != ConcatMethod::MKVMerge {
+      bail!("mkvmerge is required for concatenating x265, as x265 outputs raw HEVC bitstream files without the timestamps correctly set, which FFmpeg cannot concatenate \
+properly into a mkv file. Specify mkvmerge as the concatenation method by setting `--concat mkvmerge`.");
+    }
+
+    if self.chunk_method == ChunkMethod::LSMASH {
+      ensure!(
+        is_lsmash_installed(),
+        "LSMASH is not installed, but it was specified as the chunk method"
+      );
+    }
+
+    if self.chunk_method == ChunkMethod::FFMS2 {
+      ensure!(
+        is_ffms2_installed(),
+        "FFMS2 is not installed, but it was specified as the chunk method"
+      );
+    }
+
+    if self.chunk_method == ChunkMethod::Select {
+      warn!("It is not recommended to use the \"select\" chunk method, as it is very slow");
+    }
+
+    let encoder_bin = self.encoder.bin();
+    if which::which(encoder_bin).is_err() {
+      bail!(
+        "Encoder {} not found. Is it installed in the system path?",
+        encoder_bin
+      );
+    }
+
+    if let Some(strength) = self.photon_noise_level {
+      if strength > 64 {
+        bail!("Valid strength values for photon noise are 0-64");
+      }
+      if self.encoder != Encoder::aom {
+        bail!("Photon noise synth is only supported with aomenc");
+      }
+    }
+
+    if self.encoder == Encoder::aom
+      && self.concat != ConcatMethod::MKVMerge
+      && self
+        .params
+        .iter()
+        .any(|param| param == "--enable-keyframe-filtering=2")
+    {
+      bail!(
+        "keyframe filtering mode 2 currently only works when using mkvmerge as the concat method"
+      );
+    }
+
+    if matches!(self.encoder, Encoder::aom | Encoder::vpx)
+      && self.passes != 1
+      && self.params.iter().any(|param| param == "--rt")
+    {
+      // --rt must be used with 1-pass mode
+      self.passes = 1;
+    }
+
+    if validate_params {
+      self.validate_params()?;
+      self.check_rate_control();
+    }
+
+    Ok(())
+  }
+
+  fn validate_params(&self) -> anyhow::Result<()> {
+    let video_params: Vec<&str> = self
+      .params
+      .iter()
+      .filter_map(|param| {
+        if param.starts_with('-') && [Encoder::aom, Encoder::vpx].contains(&self.encoder) {
+          // These encoders require args to be passed using an equal sign,
+          // e.g. `--cq-level=30`
+          param.split('=').next()
+        } else {
+          // The other encoders use a space, so we don't need to do extra splitting,
+          // e.g. `--crf 30`
+          None
+        }
+      })
+      .collect();
+
+    let help_text = {
+      let [cmd, arg] = self.encoder.help_command();
+      String::from_utf8(Command::new(cmd).arg(arg).output().unwrap().stdout).unwrap()
+    };
+    let valid_params = valid_params(&help_text, self.encoder);
+    let invalid_params = invalid_params(&video_params, &valid_params);
+
+    for wrong_param in &invalid_params {
+      eprintln!(
+        "'{}' isn't a valid parameter for {}",
+        wrong_param, self.encoder,
+      );
+      if let Some(suggestion) = suggest_fix(wrong_param, &valid_params) {
+        eprintln!("\tDid you mean '{}'?", suggestion);
+      }
+    }
+
+    if !invalid_params.is_empty() {
+      println!("\nTo continue anyway, run av1an with '--force'");
+      exit(1);
+    }
+
+    Ok(())
+  }
+
+  /// Warns if rate control was not specified in encoder arguments
+  fn check_rate_control(&self) {
+    if self.encoder == Encoder::aom {
+      if !self
+        .params
+        .iter()
+        .any(|f| Self::check_aom_encoder_mode(f))
+      {
+        warn!("[WARN] --end-usage was not specified");
+      }
+
+      if !self.params.iter().any(|f| Self::check_aom_rate(f)) {
+        warn!("[WARN] --cq-level or --target-bitrate was not specified");
+      }
+    }
+  }
+
+  fn check_aom_encoder_mode(s: &str) -> bool {
+    const END_USAGE: &str = "--end-usage=";
+    if s.len() <= END_USAGE.len() || !s.starts_with(END_USAGE) {
+      return false;
+    }
+
+    s.as_bytes()[END_USAGE.len()..]
+      .iter()
+      .all(|&b| (b as char).is_ascii_alphabetic())
+  }
+
+  fn check_aom_rate(s: &str) -> bool {
+    const CQ_LEVEL: &str = "--cq-level=";
+    const TARGET_BITRATE: &str = "--target-bitrate=";
+
+    if s.len() <= CQ_LEVEL.len() || !(s.starts_with(TARGET_BITRATE) || s.starts_with(CQ_LEVEL)) {
+      return false;
+    }
+
+    if s.starts_with(CQ_LEVEL) {
+      s.as_bytes()[CQ_LEVEL.len()..]
+        .iter()
+        .all(|&b| (b as char).is_ascii_digit())
+    } else {
+      s.as_bytes()[TARGET_BITRATE.len()..]
+        .iter()
+        .all(|&b| (b as char).is_ascii_digit())
+    }
+  }
+}
+
+pub struct FFmpegArgs {
+  pub filters: Vec<String>,
+  pub audio: Vec<String>,
+  pub input_pixel_format: InputPixelFormat,
+  pub output_pixel_format: PixelFormat,
+}
+
+pub struct VMAFArgs {
+  pub calculate: bool,
+  pub model_path: Option<PathBuf>,
+  pub res_string: String,
+  pub threads: Option<usize>,
+  pub filter: Option<String>,
+  
+  pub target_quality: Option<f64>,
+  pub probes: u32,
+  pub probing_rate: u32,
+  pub probe_slow: bool,
+  pub min_q: Option<u32>,
+  pub max_q: Option<u32>,
+}
+
+impl VMAFArgs {
+  pub fn validate(&mut self, default_min_q: u32, default_max_q: u32) -> anyhow::Result<()> {
+    if self.target_quality.is_some() || self.calculate {
+      validate_libvmaf()?;
+    }
+    
+    if let Some(path) = &self.model_path {
+      ensure!(path.exists());
+    }
+
+    if self.probes < 4 {
+      println!("Target quality with less than 4 probes is experimental and not recommended");
+    }
+    
+    match self.min_q {
+      None => self.min_q = Some(default_min_q),
+      Some(min_q) => ensure!(min_q > 1),
+    }
+
+    if self.max_q.is_none() {
+      self.max_q = Some(default_max_q);
+    }
+
+    Ok(())
+  }
+}
+
+#[allow(clippy::struct_excessive_bools)]
+pub struct EncodeArgs {
+  pub vs_script: Option<PathBuf>,
+  pub frames: usize,
+  pub input: Input,
+  pub temp_dir: String,
+  pub output_file: String,
   pub verbosity: Verbosity,
   pub log_file: PathBuf,
   pub resume: bool,
   pub keep: bool,
   pub force: bool,
 
-  pub vmaf: bool,
-  pub vmaf_path: Option<PathBuf>,
-  pub vmaf_res: String,
-
-  pub concat: ConcatMethod,
-
-  pub target_quality: Option<f64>,
-  pub probes: u32,
-  pub probe_slow: bool,
-  pub min_q: Option<u32>,
-  pub max_q: Option<u32>,
-
-  pub probing_rate: u32,
-  pub vmaf_threads: Option<usize>,
-  pub vmaf_filter: Option<String>,
+  pub scene_detection: SceneDetectionArgs,
+  pub encoding: EncodingArgs,
+  pub vmaf: VMAFArgs,
+  pub ffmpeg: FFmpegArgs,
 }
 
 impl EncodeArgs {
@@ -119,20 +330,23 @@ impl EncodeArgs {
     ffmpeg::init()?;
     ffmpeg::util::log::set_level(ffmpeg::util::log::level::Level::Fatal);
 
-    if !self.resume && Path::new(&self.temp).is_dir() {
-      fs::remove_dir_all(&self.temp)
-        .with_context(|| format!("Failed to remove temporary directory {:?}", &self.temp))?;
+    let temp_dir = &self.temp_dir;
+    let temp_path = Path::new(temp_dir);
+
+    if !self.resume && temp_path.is_dir() {
+      fs::remove_dir_all(temp_dir)
+        .with_context(|| format!("Failed to remove temporary directory {:?}", temp_dir))?;
     }
 
-    create_dir!(Path::new(&self.temp))?;
-    create_dir!(Path::new(&self.temp).join("split"))?;
-    create_dir!(Path::new(&self.temp).join("encode"))?;
+    create_dir!(temp_path)?;
+    create_dir!(temp_path.join("split"))?;
+    create_dir!(temp_path.join("encode"))?;
 
-    debug!("temporary directory: {}", &self.temp);
+    debug!("temporary directory: {}", temp_dir);
 
-    let done_path = Path::new(&self.temp).join("done.json");
+    let done_path = temp_path.join("done.json");
     let done_json_exists = done_path.exists();
-    let chunks_json_exists = Path::new(&self.temp).join("chunks.json").exists();
+    let chunks_json_exists = temp_path.join("chunks.json").exists();
 
     if self.resume {
       match (done_json_exists, chunks_json_exists) {
@@ -141,21 +355,21 @@ impl EncodeArgs {
         (false, true) => {
           info!(
             "resume was set but done.json does not exist in temporary directory {:?}",
-            &self.temp
+            temp_dir
           );
           self.resume = false;
         }
         (true, false) => {
           info!(
             "resume was set but chunks.json does not exist in temporary directory {:?}",
-            &self.temp
+            temp_dir
           );
           self.resume = false;
         }
         (false, false) => {
           info!(
             "resume was set but neither chunks.json nor done.json exist in temporary directory {:?}",
-            &self.temp
+            temp_dir
           );
           self.resume = false;
         }
@@ -229,7 +443,7 @@ impl EncodeArgs {
     let mut video_params = chunk
       .overrides
       .as_ref()
-      .map_or_else(|| self.video_params.clone(), |ovr| ovr.video_params.clone());
+      .map_or_else(|| self.encoding.params.clone(), |ovr| ovr.video_params.clone());
     if tpl_crash_workaround {
       // In aomenc for duplicate arguments, whichever is specified last takes precedence.
       video_params.push("--enable-tpl-model=0".to_string());
@@ -271,8 +485,8 @@ impl EncodeArgs {
         // converts the pixel format
         let create_ffmpeg_pipe = |pipe_from: Stdio, source_pipe_stderr: ChildStderr| {
           let ffmpeg_pipe = compose_ffmpeg_pipe(
-            self.ffmpeg_filter_args.as_slice(),
-            self.output_pix_format.format,
+            self.ffmpeg.filters.as_slice(),
+            self.ffmpeg.output_pixel_format.format,
           );
 
           let mut ffmpeg_pipe = if let [ffmpeg, args @ ..] = &*ffmpeg_pipe {
@@ -297,17 +511,17 @@ impl EncodeArgs {
         };
 
         let (y4m_pipe, source_pipe_stderr, mut ffmpeg_pipe_stderr) =
-          if self.ffmpeg_filter_args.is_empty() {
-            match &self.input_pix_format {
+          if self.ffmpeg.filters.is_empty() {
+            match &self.ffmpeg.input_pixel_format {
               InputPixelFormat::FFmpeg { format } => {
-                if self.output_pix_format.format == *format {
+                if self.ffmpeg.output_pixel_format.format == *format {
                   (source_pipe_stdout, source_pipe_stderr, None)
                 } else {
                   create_ffmpeg_pipe(source_pipe_stdout, source_pipe_stderr)
                 }
               }
               InputPixelFormat::VapourSynth { bit_depth } => {
-                if self.output_pix_format.bit_depth == *bit_depth {
+                if self.ffmpeg.output_pixel_format.bit_depth == *bit_depth {
                   (source_pipe_stdout, source_pipe_stderr, None)
                 } else {
                   create_ffmpeg_pipe(source_pipe_stdout, source_pipe_stderr)
@@ -460,218 +674,35 @@ impl EncodeArgs {
     Ok(())
   }
 
-  fn validate_encoder_params(&self) {
-    let video_params: Vec<&str> = self
-      .video_params
-      .iter()
-      .filter_map(|param| {
-        if param.starts_with('-') && [Encoder::aom, Encoder::vpx].contains(&self.encoder) {
-          // These encoders require args to be passed using an equal sign,
-          // e.g. `--cq-level=30`
-          param.split('=').next()
-        } else {
-          // The other encoders use a space, so we don't need to do extra splitting,
-          // e.g. `--crf 30`
-          None
-        }
-      })
-      .collect();
-
-    let help_text = {
-      let [cmd, arg] = self.encoder.help_command();
-      String::from_utf8(Command::new(cmd).arg(arg).output().unwrap().stdout).unwrap()
-    };
-    let valid_params = valid_params(&help_text, self.encoder);
-    let invalid_params = invalid_params(&video_params, &valid_params);
-
-    for wrong_param in &invalid_params {
-      eprintln!(
-        "'{}' isn't a valid parameter for {}",
-        wrong_param, self.encoder,
-      );
-      if let Some(suggestion) = suggest_fix(wrong_param, &valid_params) {
-        eprintln!("\tDid you mean '{}'?", suggestion);
-      }
-    }
-
-    if !invalid_params.is_empty() {
-      println!("\nTo continue anyway, run av1an with '--force'");
-      exit(1);
-    }
-  }
-
   pub fn startup_check(&mut self) -> anyhow::Result<()> {
-    if self.concat == ConcatMethod::Ivf
-      && !matches!(
-        self.encoder,
-        Encoder::rav1e | Encoder::aom | Encoder::svt_av1 | Encoder::vpx
-      )
-    {
-      bail!(".ivf only supports VP8, VP9, and AV1");
-    }
-
-    ensure!(self.max_tries > 0);
-
     ensure!(
       self.input.as_path().exists(),
       "Input file {:?} does not exist!",
       self.input
     );
 
-    if self.target_quality.is_some() || self.vmaf {
-      validate_libvmaf()?;
-    }
-
-    if which::which("ffmpeg").is_err() {
-      bail!("FFmpeg not found. Is it installed in system path?");
-    }
-
-    if self.concat == ConcatMethod::MKVMerge && which::which("mkvmerge").is_err() {
-      bail!("mkvmerge not found, but `--concat mkvmerge` was specified. Is it installed in system path?");
-    }
-
-    if self.encoder == Encoder::x265 && self.concat != ConcatMethod::MKVMerge {
-      bail!("mkvmerge is required for concatenating x265, as x265 outputs raw HEVC bitstream files without the timestamps correctly set, which FFmpeg cannot concatenate \
-properly into a mkv file. Specify mkvmerge as the concatenation method by setting `--concat mkvmerge`.");
-    }
-
-    if self.chunk_method == ChunkMethod::LSMASH {
-      ensure!(
-        is_lsmash_installed(),
-        "LSMASH is not installed, but it was specified as the chunk method"
-      );
-    }
-    if self.chunk_method == ChunkMethod::FFMS2 {
-      ensure!(
-        is_ffms2_installed(),
-        "FFMS2 is not installed, but it was specified as the chunk method"
-      );
-    }
-    if self.chunk_method == ChunkMethod::Select {
-      warn!("It is not recommended to use the \"select\" chunk method, as it is very slow");
-    }
-
-    if let Some(vmaf_path) = &self.vmaf_path {
-      ensure!(vmaf_path.exists());
-    }
-
-    if self.probes < 4 {
-      println!("Target quality with less than 4 probes is experimental and not recommended");
-    }
-
-    let (min, max) = self.encoder.get_default_cq_range();
-    match self.min_q {
-      None => {
-        self.min_q = Some(min as u32);
-      }
-      Some(min_q) => ensure!(min_q > 1),
-    }
-
-    if self.max_q.is_none() {
-      self.max_q = Some(max as u32);
-    }
-
-    let encoder_bin = self.encoder.bin();
-    if which::which(encoder_bin).is_err() {
-      bail!(
-        "Encoder {} not found. Is it installed in the system path?",
-        encoder_bin
-      );
-    }
-
-    if self.video_params.is_empty() {
-      self.video_params = self
+    self.encoding.validate(!self.force)?;
+    
+    let (min_q, max_q) = self.encoding.encoder.get_default_cq_range();
+    self.vmaf.validate(min_q as u32, max_q as u32)?;
+    
+    if self.encoding.params.is_empty() {
+      self.encoding.params = self
+        .encoding
         .encoder
         .get_default_arguments(self.input.calculate_tiles());
     }
-
-    if let Some(strength) = self.photon_noise {
-      if strength > 64 {
-        bail!("Valid strength values for photon noise are 0-64");
-      }
-      if self.encoder != Encoder::aom {
-        bail!("Photon noise synth is only supported with aomenc");
-      }
-    }
-
-    if self.encoder == Encoder::aom
-      && self.concat != ConcatMethod::MKVMerge
-      && self
-        .video_params
-        .iter()
-        .any(|param| param == "--enable-keyframe-filtering=2")
-    {
-      bail!(
-        "keyframe filtering mode 2 currently only works when using mkvmerge as the concat method"
-      );
-    }
-
-    if matches!(self.encoder, Encoder::aom | Encoder::vpx)
-      && self.passes != 1
-      && self.video_params.iter().any(|param| param == "--rt")
-    {
-      // --rt must be used with 1-pass mode
-      self.passes = 1;
-    }
-
-    if !self.force {
-      self.validate_encoder_params();
-      self.check_rate_control();
+    
+    if which::which("ffmpeg").is_err() {
+      bail!("FFmpeg not found. Is it installed in system path?");
     }
 
     Ok(())
   }
 
-  /// Warns if rate control was not specified in encoder arguments
-  fn check_rate_control(&self) {
-    if self.encoder == Encoder::aom {
-      if !self
-        .video_params
-        .iter()
-        .any(|f| Self::check_aom_encoder_mode(f))
-      {
-        warn!("[WARN] --end-usage was not specified");
-      }
-
-      if !self.video_params.iter().any(|f| Self::check_aom_rate(f)) {
-        warn!("[WARN] --cq-level or --target-bitrate was not specified");
-      }
-    }
-  }
-
-  fn check_aom_encoder_mode(s: &str) -> bool {
-    const END_USAGE: &str = "--end-usage=";
-    if s.len() <= END_USAGE.len() || !s.starts_with(END_USAGE) {
-      return false;
-    }
-
-    s.as_bytes()[END_USAGE.len()..]
-      .iter()
-      .all(|&b| (b as char).is_ascii_alphabetic())
-  }
-
-  fn check_aom_rate(s: &str) -> bool {
-    const CQ_LEVEL: &str = "--cq-level=";
-    const TARGET_BITRATE: &str = "--target-bitrate=";
-
-    if s.len() <= CQ_LEVEL.len() || !(s.starts_with(TARGET_BITRATE) || s.starts_with(CQ_LEVEL)) {
-      return false;
-    }
-
-    if s.starts_with(CQ_LEVEL) {
-      s.as_bytes()[CQ_LEVEL.len()..]
-        .iter()
-        .all(|&b| (b as char).is_ascii_digit())
-    } else {
-      s.as_bytes()[TARGET_BITRATE.len()..]
-        .iter()
-        .all(|&b| (b as char).is_ascii_digit())
-    }
-  }
-
   fn create_encoding_queue(&mut self, scenes: &[Scene]) -> anyhow::Result<Vec<Chunk>> {
     let mut chunks = match &self.input {
-      Input::Video(_) => match self.chunk_method {
+      Input::Video(_) => match self.encoding.chunk_method {
         ChunkMethod::FFMS2 | ChunkMethod::LSMASH => {
           let vs_script = self.vs_script.as_ref().unwrap().as_path();
           self.create_video_queue_vs(scenes, vs_script)
@@ -683,7 +714,7 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
       Input::VapourSynth(vs_script) => self.create_video_queue_vs(scenes, vs_script.as_path()),
     };
 
-    match self.chunk_order {
+    match self.encoding.chunk_order {
       ChunkOrdering::LongestFirst => {
         chunks.sort_unstable_by_key(|chunk| Reverse(chunk.frames));
       }
@@ -704,16 +735,16 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
   fn calc_split_locations(&self) -> anyhow::Result<(Vec<Scene>, usize)> {
     let zones = self.parse_zones()?;
 
-    Ok(match self.split_method {
+    Ok(match self.scene_detection.split_method {
       SplitMethod::AvScenechange => av_scenechange_detect(
         &self.input,
-        self.encoder,
+        self.encoding.encoder,
         self.frames,
-        self.min_scene_len,
+        self.scene_detection.min_len,
         self.verbosity,
-        self.sc_pix_format,
-        self.sc_method,
-        self.sc_downscale_height,
+        self.scene_detection.pixel_format,
+        self.scene_detection.method,
+        self.scene_detection.downscale_height,
         &zones,
       )?,
       SplitMethod::None => {
@@ -749,7 +780,7 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
 
   fn parse_zones(&self) -> anyhow::Result<Vec<Scene>> {
     let mut zones = Vec::new();
-    if let Some(ref zones_file) = self.zones {
+    if let Some(ref zones_file) = self.encoding.zone_file {
       let input = fs::read_to_string(&zones_file)?;
       for zone_line in input.lines().map(str::trim).filter(|line| !line.is_empty()) {
         zones.push(Scene::parse_from_zone(zone_line, self)?);
@@ -769,13 +800,13 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
   // If we are not resuming, then do scene detection. Otherwise: get scenes from
   // scenes.json and return that.
   fn split_routine(&mut self) -> anyhow::Result<Vec<Scene>> {
-    let scene_file = self.scenes.as_ref().map_or_else(
-      || Cow::Owned(Path::new(&self.temp).join("scenes.json")),
+    let scene_file = self.scene_detection.save_file.as_ref().map_or_else(
+      || Cow::Owned(Path::new(&self.temp_dir).join("scenes.json")),
       |path| Cow::Borrowed(path.as_path()),
     );
 
     let used_existing_cuts;
-    let (mut scenes, frames) = if (self.scenes.is_some() && scene_file.exists()) || self.resume {
+    let (mut scenes, frames) = if (self.scene_detection.save_file.is_some() && scene_file.exists()) || self.resume {
       used_existing_cuts = true;
       crate::split::read_scenes_from_file(scene_file.as_ref())?
     } else {
@@ -789,7 +820,7 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
       .store(self.frames, atomic::Ordering::SeqCst);
     let scenes_before = scenes.len();
     if !used_existing_cuts {
-      if let Some(split_len) = self.extra_splits_len {
+      if let Some(split_len) = self.scene_detection.extra_splits_len {
         scenes = extra_splits(&scenes, self.frames, split_len);
         let scenes_after = scenes.len();
         info!(
@@ -836,7 +867,7 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
         frame_start, frame_end
       ),
       "-pix_fmt",
-      self.output_pix_format.format.descriptor().unwrap().name(),
+      self.ffmpeg.output_pixel_format.format.descriptor().unwrap().name(),
       "-strict",
       "-1",
       "-f",
@@ -844,10 +875,10 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
       "-",
     ];
 
-    let output_ext = self.encoder.output_extension();
+    let output_ext = self.encoding.encoder.output_extension();
 
     Chunk {
-      temp: self.temp.clone(),
+      temp: self.temp_dir.clone(),
       index,
       source: ffmpeg_gen_cmd,
       output_ext: output_ext.to_owned(),
@@ -873,10 +904,10 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
       format!("{}", frame_end),
     ];
 
-    let output_ext = self.encoder.output_extension();
+    let output_ext = self.encoding.encoder.output_extension();
 
     Chunk {
-      temp: self.temp.clone(),
+      temp: self.temp_dir.clone(),
       index,
       source: vspipe_cmd_gen,
       output_ext: output_ext.to_owned(),
@@ -922,7 +953,7 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
     debug!("Splitting video");
     segment(
       input,
-      &self.temp,
+      &self.temp_dir,
       &scenes
         .iter()
         .skip(1)
@@ -931,7 +962,7 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
     );
     debug!("Splitting done");
 
-    let source_path = Path::new(&self.temp).join("split");
+    let source_path = Path::new(&self.temp_dir).join("split");
     let queue_files = Self::read_queue_files(&source_path)?;
 
     assert!(
@@ -966,10 +997,10 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
       .collect();
 
     debug!("Segmenting video");
-    segment(input, &self.temp, &to_split[1..]);
+    segment(input, &self.temp_dir, &to_split[1..]);
     debug!("Segment done");
 
-    let source_path = Path::new(&self.temp).join("split");
+    let source_path = Path::new(&self.temp_dir).join("split");
     let queue_files = Self::read_queue_files(&source_path)?;
 
     let kf_list = to_split
@@ -1017,16 +1048,16 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
       "-strict",
       "-1",
       "-pix_fmt",
-      self.output_pix_format.format.descriptor().unwrap().name(),
+      self.ffmpeg.output_pixel_format.format.descriptor().unwrap().name(),
       "-f",
       "yuv4mpegpipe",
       "-",
     ];
 
-    let output_ext = self.encoder.output_extension();
+    let output_ext = self.encoding.encoder.output_extension();
 
     Chunk {
-      temp: self.temp.clone(),
+      temp: self.temp_dir.clone(),
       frames: self.frames,
       source: ffmpeg_gen_cmd,
       output_ext: output_ext.to_owned(),
@@ -1039,7 +1070,7 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
   /// Returns unfinished chunks and number of total chunks
   fn load_or_gen_chunk_queue(&mut self, splits: &[Scene]) -> anyhow::Result<(Vec<Chunk>, usize)> {
     if self.resume {
-      let mut chunks = read_chunk_queue(self.temp.as_ref())?;
+      let mut chunks = read_chunk_queue(self.temp_dir.as_ref())?;
       let num_chunks = chunks.len();
 
       let done = get_done();
@@ -1051,7 +1082,7 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
     } else {
       let chunks = self.create_encoding_queue(splits)?;
       let num_chunks = chunks.len();
-      save_chunk_queue(&self.temp, &chunks)?;
+      save_chunk_queue(&self.temp_dir, &chunks)?;
       Ok((chunks, num_chunks))
     }
   }
@@ -1069,12 +1100,12 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
       // generated when vspipe is first called), so it's not worth adding all the extra complexity.
       if (self.input.is_vapoursynth()
         || (self.input.is_video()
-          && matches!(self.chunk_method, ChunkMethod::LSMASH | ChunkMethod::FFMS2)))
+          && matches!(self.encoding.chunk_method, ChunkMethod::LSMASH | ChunkMethod::FFMS2)))
         && !self.resume
       {
         self.vs_script = Some(match &self.input {
           Input::VapourSynth(path) => path.clone(),
-          Input::Video(path) => create_vs_file(&self.temp, path, self.chunk_method)?,
+          Input::Video(path) => create_vs_file(&self.temp_dir, path, self.encoding.chunk_method)?,
         });
 
         let vs_script = self.vs_script.clone().unwrap();
@@ -1101,7 +1132,7 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
     let format = self.input.pixel_format()?;
     let tfc = self
       .input
-      .transfer_function_params_adjusted(&self.video_params)?;
+      .transfer_function_params_adjusted(&self.encoding.params)?;
     info!(
       "Input: {}x{} @ {:.3} fps, {}, {}",
       res.0,
@@ -1116,10 +1147,10 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
 
     let splits = self.split_routine()?;
 
-    if self.sc_only {
+    if self.scene_detection.only {
       debug!("scene detection only");
 
-      if let Err(e) = fs::remove_dir_all(&self.temp) {
+      if let Err(e) = fs::remove_dir_all(&self.temp_dir) {
         warn!("Failed to delete temp directory: {}", e);
       }
 
@@ -1143,8 +1174,8 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
     }
 
     let mut grain_table = None;
-    if let Some(strength) = self.photon_noise {
-      let table = Path::new(&self.temp).join("grain.tbl");
+    if let Some(strength) = self.encoding.photon_noise_level {
+      let table = Path::new(&self.temp_dir).join("grain.tbl");
       if !table.exists() {
         debug!(
           "Generating grain table at ISO {}",
@@ -1153,7 +1184,7 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
         let (width, height) = self.input.resolution()?;
         let transfer = self
           .input
-          .transfer_function_params_adjusted(&self.video_params)?;
+          .transfer_function_params_adjusted(&self.encoding.params)?;
         create_film_grain_file(&table, strength, width, height, transfer)?;
       } else {
         debug!("Using existing grain table");
@@ -1161,10 +1192,12 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
 
       // We should not use a grain table together with aom's grain generation
       self
-        .video_params
+        .encoding
+        .params
         .retain(|param| !param.starts_with("--denoise-noise-level="));
       self
-        .video_params
+        .encoding
+        .params
         .push(format!("--film-grain-table={}", table.to_str().unwrap()));
       grain_table = Some(table);
     }
@@ -1172,11 +1205,11 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
     for chunk in &mut chunk_queue {
       // Also apply grain tables to zone overrides
       if let Some(strength) = chunk.overrides.as_ref().and_then(|ovr| ovr.photon_noise) {
-        let grain_table = if Some(strength) == self.photon_noise {
+        let grain_table = if Some(strength) == self.encoding.photon_noise_level {
           // We can reuse the existing photon noise table from the main encode
           grain_table.clone().unwrap()
         } else {
-          let grain_table = Path::new(&self.temp).join(&format!("chunk{}-grain.tbl", chunk.index));
+          let grain_table = Path::new(&self.temp_dir).join(&format!("chunk{}-grain.tbl", chunk.index));
           debug!(
             "Generating grain table at ISO {}",
             u32::from(strength) * 100
@@ -1184,7 +1217,7 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
           let (width, height) = self.input.resolution()?;
           let transfer = self
             .input
-            .transfer_function_params_adjusted(&self.video_params)?;
+            .transfer_function_params_adjusted(&self.encoding.params)?;
           create_film_grain_file(&grain_table, strength, width, height, transfer)?;
           grain_table
         };
@@ -1208,8 +1241,8 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
         && (!self.resume || !get_done().audio_done.load(atomic::Ordering::SeqCst))
       {
         let input = self.input.as_video_path();
-        let temp = self.temp.as_str();
-        let audio_params = self.audio_params.as_slice();
+        let temp = self.temp_dir.as_str();
+        let audio_params = self.ffmpeg.audio.as_slice();
         let audio_size_ref = Arc::clone(&audio_size_bytes);
         Some(s.spawn(move |_| {
           let audio_output = crate::ffmpeg::encode_audio(input, temp, audio_params);
@@ -1234,10 +1267,10 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
         None
       };
 
-      if self.workers == 0 {
-        self.workers = determine_workers(self.encoder) as usize;
+      if self.encoding.workers == 0 {
+        self.encoding.workers = determine_workers(self.encoding.encoder) as usize;
       }
-      self.workers = cmp::min(self.workers, chunk_queue.len());
+      self.encoding.workers = cmp::min(self.encoding.workers, chunk_queue.len());
 
       if atty::is(atty::Stream::Stderr) {
         eprintln!(
@@ -1247,20 +1280,20 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
           Color::Green.bold().paint(format!("{}", chunk_queue.len())),
           Color::Blue.bold().paint("W"),
           Color::Blue.paint("orkers"),
-          Color::Blue.bold().paint(format!("{}", self.workers)),
+          Color::Blue.bold().paint(format!("{}", self.encoding.workers)),
           Color::Purple.bold().paint("P"),
           Color::Purple.paint("asses"),
-          Color::Purple.bold().paint(format!("{}", self.passes)),
+          Color::Purple.bold().paint(format!("{}", self.encoding.passes)),
           Style::default().bold().paint("Params"),
-          Style::default().dimmed().paint(self.video_params.join(" "))
+          Style::default().dimmed().paint(self.encoding.params.join(" "))
         );
       } else {
         eprintln!(
           "Queue {} Workers {} Passes {}\nParams: {}",
           chunk_queue.len(),
-          self.workers,
-          self.passes,
-          self.video_params.join(" ")
+          self.encoding.workers,
+          self.encoding.passes,
+          self.encoding.params.join(" ")
         );
       }
 
@@ -1268,7 +1301,7 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
         init_progress_bar(self.frames as u64);
         reset_bar_at(initial_frames as u64);
       } else if self.verbosity == Verbosity::Verbose {
-        init_multi_progress_bar(self.frames as u64, self.workers, total_chunks);
+        init_multi_progress_bar(self.frames as u64, self.encoding.workers, total_chunks);
         reset_mp_bar_at(initial_frames as u64);
       }
 
@@ -1286,18 +1319,18 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
         chunk_queue,
         total_chunks,
         project: self,
-        target_quality: if self.target_quality.is_some() {
+        target_quality: if self.vmaf.target_quality.is_some() {
           Some(TargetQuality::new(self))
         } else {
           None
         },
-        max_tries: self.max_tries,
+        max_tries: self.encoding.max_tries,
       };
 
       let audio_size_ref = Arc::clone(&audio_size_bytes);
       let (tx, rx) = mpsc::channel();
       let handle = s.spawn(|_| {
-        broker.encoding_loop(tx, self.set_thread_affinity, audio_size_ref);
+        broker.encoding_loop(tx, self.encoding.worker_thread_affinity, audio_size_ref);
       });
 
       // Queue::encoding_loop only sends a message if there was an error (meaning a chunk crashed)
@@ -1318,37 +1351,37 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
       let _audio_output_exists =
         audio_thread.map_or(false, |audio_thread| audio_thread.join().unwrap());
 
-      debug!("encoding finished, concatenating with {}", self.concat);
+      debug!("encoding finished, concatenating with {}", self.encoding.concat);
 
-      match self.concat {
+      match self.encoding.concat {
         ConcatMethod::Ivf => {
           concat::ivf(
-            &Path::new(&self.temp).join("encode"),
+            &Path::new(&self.temp_dir).join("encode"),
             self.output_file.as_ref(),
           )?;
         }
         ConcatMethod::MKVMerge => {
           concat::mkvmerge(
-            self.temp.as_ref(),
+            self.temp_dir.as_ref(),
             self.output_file.as_ref(),
-            self.encoder,
+            self.encoding.encoder,
             total_chunks,
           )?;
         }
         ConcatMethod::FFmpeg => {
-          concat::ffmpeg(self.temp.as_ref(), self.output_file.as_ref())?;
+          concat::ffmpeg(self.temp_dir.as_ref(), self.output_file.as_ref())?;
         }
       }
 
-      if self.vmaf {
+      if self.vmaf.calculate {
         if let Err(e) = vmaf::plot(
           self.output_file.as_ref(),
           &self.input,
-          self.vmaf_path.as_deref(),
-          self.vmaf_res.as_str(),
+          self.vmaf.model_path.as_deref(),
+          self.vmaf.res_string.as_str(),
           1,
-          self.vmaf_filter.as_deref(),
-          self.vmaf_threads.unwrap_or_else(|| {
+          self.vmaf.filter.as_deref(),
+          self.vmaf.threads.unwrap_or_else(|| {
             available_parallelism()
               .expect("Unrecoverable: Failed to get thread count")
               .get()
@@ -1361,10 +1394,10 @@ properly into a mkv file. Specify mkvmerge as the concatenation method by settin
       if !Path::new(&self.output_file).exists() {
         warn!(
           "Concatenation failed for unknown reasons! Temp folder will not be deleted: {}",
-          &self.temp
+          &self.temp_dir
         );
       } else if !self.keep {
-        if let Err(e) = fs::remove_dir_all(&self.temp) {
+        if let Err(e) = fs::remove_dir_all(&self.temp_dir) {
           warn!("Failed to delete temp directory: {}", e);
         }
       }

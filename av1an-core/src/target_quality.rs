@@ -39,21 +39,21 @@ pub struct TargetQuality<'a> {
 impl<'a> TargetQuality<'a> {
   pub fn new(args: &'a EncodeArgs) -> Self {
     Self {
-      vmaf_res: args.vmaf_res.as_str(),
-      vmaf_filter: args.vmaf_filter.as_deref(),
-      vmaf_threads: args.vmaf_threads.unwrap_or(0),
-      model: args.vmaf_path.as_deref(),
-      probes: args.probes,
-      target: args.target_quality.unwrap(),
-      min_q: args.min_q.unwrap(),
-      max_q: args.max_q.unwrap(),
-      encoder: args.encoder,
-      pix_format: args.output_pix_format.format,
-      temp: args.temp.clone(),
-      workers: args.workers,
-      video_params: args.video_params.clone(),
-      probe_slow: args.probe_slow,
-      probing_rate: adapt_probing_rate(args.probing_rate as usize),
+      vmaf_res: args.vmaf.res_string.as_str(),
+      vmaf_filter: args.vmaf.filter.as_deref(),
+      vmaf_threads: args.vmaf.threads.unwrap_or(0),
+      model: args.vmaf.model_path.as_deref(),
+      probes: args.vmaf.probes,
+      target: args.vmaf.target_quality.unwrap(),
+      min_q: args.vmaf.min_q.unwrap(),
+      max_q: args.vmaf.max_q.unwrap(),
+      encoder: args.encoding.encoder,
+      pix_format: args.ffmpeg.output_pixel_format.format,
+      temp: args.temp_dir.clone(),
+      workers: args.encoding.workers,
+      video_params: args.encoding.params.clone(),
+      probe_slow: args.vmaf.probe_slow,
+      probing_rate: adapt_probing_rate(args.vmaf.probing_rate as usize),
     }
   }
 

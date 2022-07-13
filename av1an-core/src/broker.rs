@@ -125,7 +125,7 @@ impl<'a> Broker<'a> {
         if #[cfg(any(target_os = "linux", target_os = "windows"))] {
           if let Some(threads) = set_thread_affinity {
             let available_threads = available_parallelism().expect("Unrecoverable: Failed to get thread count").get();
-            let requested_threads = threads.saturating_mul(self.project.workers);
+            let requested_threads = threads.saturating_mul(self.project.encoding.workers);
             if requested_threads > available_threads {
               warn!(
                 "ignoring set_thread_affinity: requested more threads than available ({}/{})",
@@ -144,7 +144,7 @@ impl<'a> Broker<'a> {
       let frame_rate = self.project.input.frame_rate().unwrap();
 
       crossbeam_utils::thread::scope(|s| {
-        let consumers: Vec<_> = (0..self.project.workers)
+        let consumers: Vec<_> = (0..self.project.encoding.workers)
           .map(|idx| (receiver.clone(), &self, idx))
           .map(|(rx, queue, worker_id)| {
             let tx = tx.clone();
@@ -219,11 +219,11 @@ impl<'a> Broker<'a> {
     let encoder = chunk
       .overrides
       .as_ref()
-      .map_or(self.project.encoder, |ovr| ovr.encoder);
+      .map_or(self.project.encoding.encoder, |ovr| ovr.encoder);
     let passes = chunk
       .overrides
       .as_ref()
-      .map_or(self.project.passes, |ovr| ovr.passes);
+      .map_or(self.project.encoding.passes, |ovr| ovr.passes);
     let mut tpl_crash_workaround = false;
     for current_pass in 1..=passes {
       for r#try in 1..=self.max_tries {
@@ -275,7 +275,7 @@ impl<'a> Broker<'a> {
     let enc_time = st_time.elapsed();
     let fps = chunk.frames as f64 / enc_time.as_secs_f64();
 
-    let progress_file = Path::new(&self.project.temp).join("done.json");
+    let progress_file = Path::new(&self.project.temp_dir).join("done.json");
     get_done().done.insert(
       chunk.name(),
       DoneChunk {
